@@ -1,0 +1,57 @@
+import gym
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# A tiny neural network to decide which action to take
+class PolicyNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(4, 2)  # CartPole has 4 state values, 2 actions
+
+    def forward(self, x):
+        return torch.softmax(self.fc(x), dim=0)
+
+# Discounted rewards
+def get_returns(rewards, gamma=0.99):
+    G = 0
+    returns = []
+    for r in reversed(rewards):
+        G = r + gamma * G
+        returns.insert(0, G)
+    return returns
+
+env = gym.make("CartPole-v1")
+policy = PolicyNet()
+optimizer = optim.Adam(policy.parameters(), lr=0.01)
+
+for episode in range(500):
+    state = env.reset()
+    log_probs = []
+    rewards = []
+
+    done = False
+    while not done:
+        state_tensor = torch.tensor(state, dtype=torch.float32)
+        probs = policy(state_tensor)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()
+
+        log_probs.append(dist.log_prob(action))
+        state, reward, done, _ = env.step(action.item())
+        rewards.append(reward)
+
+    returns = get_returns(rewards)
+
+    loss = 0
+    for log_prob, G in zip(log_probs, returns):
+        loss -= log_prob * G
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if episode % 50 == 0:
+        print(f"Episode {episode}, Total reward: {sum(rewards)}")
+
+env.close()
